@@ -4,7 +4,8 @@ use git2::Repository;
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::{config, groq::Groq};
+use crate::config;
+use crate::groq::Groq;
 
 #[derive(Deserialize)]
 struct Crate {

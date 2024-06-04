@@ -3,7 +3,6 @@ use clap::Parser;
 
 pub mod app;
 pub mod config;
-pub mod github;
 pub mod groq;
 
 #[tokio::main]
@@ -13,9 +12,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let cli_args = config::CliArgs::parse();
     let app = App::new(&cli_args).await;
 
-    app.run().await;
-
-    Ok(())
+    app.run().await
 }
 
 fn init_logging_and_env() -> Result<(), anyhow::Error> {
