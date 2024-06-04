@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use git2::Repository;
 use reqwest::Client;
 use serde::Deserialize;
+use tracing::info;
 
 use crate::config;
 use crate::groq::Groq;
@@ -25,6 +26,12 @@ impl App {
     pub async fn new(cli_args: &config::CliArgs) -> App {
         let groq = Groq::new(&cli_args.groq_api_key);
         let client = Client::new();
+
+        // Ensure the work directory exists
+        if !cli_args.work_dir.exists() {
+            std::fs::create_dir_all(&cli_args.work_dir).expect("Failed to create work directory");
+        }
+
         App {
             instructions: cli_args.instructions.clone(),
             work_dir: cli_args.work_dir.clone(),
@@ -52,15 +59,10 @@ impl App {
     }
 
     async fn identify_tool(&self) -> Result<Option<String>, anyhow::Error> {
-        let response = self
-            .groq
-            .request_chat_completion(&self.instructions)
-            .await?;
+        let crates = self.groq.get_crates_list(&self.instructions).await?;
+        info!("Tools identified: {}", crates.join(", "));
 
-        let tool = response.choices[0].message.content.clone();
-        println!("Tool identified: {}", tool);
-
-        Ok(Some(tool))
+        Ok(crates.first().cloned())
     }
 
     async fn search_crates_io(&self, keywords: &str) -> Option<String> {
