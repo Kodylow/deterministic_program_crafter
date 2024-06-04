@@ -1,5 +1,5 @@
 {
-  description = "<REPLACE_ME_WITH_DESCRIPTION>";
+  description = "replace-me-with-crate-description";
 
   inputs = {
     nixpkgs = { url = "github:nixos/nixpkgs/nixos-23.11"; };
@@ -10,13 +10,12 @@
     };
 
     flakebox = {
-      url = "github:dpc/flakebox";
+      url = "github:dpc/flakebox?rev=226d584e9a288b9a0471af08c5712e7fac6f87dc";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.fenix.follows = "fenix";
     };
 
     flake-utils.url = "github:numtide/flake-utils";
-
   };
 
   outputs = { self, nixpkgs, flakebox, fenix, flake-utils }:
@@ -24,10 +23,11 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
+        packageName = "replace-me-with-crate-binary-name";
         flakeboxLib = flakebox.lib.${system} { };
         rustSrc = flakeboxLib.filterSubPaths {
           root = builtins.path {
-            name = "REPLACE_ME_WITH_CRATE_BINARY_NAME";
+            name = packageName;
             path = ./.;
           };
           paths = [
@@ -35,13 +35,15 @@
             "Cargo.lock"
             ".cargo"
             "src"
-            "REPLACE_ME_WITH_CRATE_BINARY_NAME"
+            "multimint"
+            packageName
+            "clientd-stateless"
           ];
         };
 
         toolchainArgs = let llvmPackages = pkgs.llvmPackages_11;
         in {
-          extraRustFlags = "REPLACE_ME_WITH_FLAGS";
+          extraRustFlags = "--cfg tokio_unstable";
 
           components = [ "rustc" "cargo" "clippy" "rust-analyzer" "rust-src" ];
 
@@ -50,6 +52,8 @@
               ++ lib.optionals (!pkgs.stdenv.isDarwin) [ ];
           };
         } // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          # on Darwin newest stdenv doesn't seem to work
+          # linking rocksdb
           stdenv = pkgs.clang11Stdenv;
           clang = llvmPackages.clang;
           libclang = llvmPackages.libclang.lib;
@@ -73,35 +77,29 @@
           (craneLib':
             let
               craneLib = (craneLib'.overrideArgs {
-                pname = "flexbox-multibuild";
+                pname = packageName;
                 src = rustSrc;
               }).overrideArgs commonArgs;
             in rec {
               workspaceDeps = craneLib.buildWorkspaceDepsOnly { };
               workspaceBuild =
                 craneLib.buildWorkspace { cargoArtifacts = workspaceDeps; };
-              REPLACE_ME_WITH_CRATE_BINARY_NAME = craneLib.buildPackageGroup {
-                pname = "REPLACE_ME_WITH_CRATE_BINARY_NAME";
-                packages = [ "REPLACE_ME_WITH_CRATE_BINARY_NAME" ];
-                mainProgram = "REPLACE_ME_WITH_CRATE_BINARY_NAME";
+              package = craneLib.buildPackageGroup {
+                pname = packageName;
+                packages = [ packageName ];
+                mainProgram = packageName;
               };
             });
       in {
         legacyPackages = outputs;
-        packages = { default = outputs.REPLACE_ME_WITH_CRATE_BINARY_NAME; };
+        packages = { default = outputs.package; };
         devShells = flakeboxLib.mkShells {
           packages = [ ];
-          buildInputs = [
-            pkgs.REPLACE_ME_WITH_DEPENDENCY
-            pkgs.REPLACE_ME_WITH_DEPENDENCY
-            commonArgs.buildInputs
-          ];
-          nativeBuildInputs = [
-            pkgs.REPLACE_ME_WITH_DEPENDENCY
-            pkgs.REPLACE_ME_WITH_DEPENDENCY
-            commonArgs.nativeBuildInputs
-          ];
+          buildInputs = commonArgs.buildInputs;
+          nativeBuildInputs = [ commonArgs.nativeBuildInputs ];
           shellHook = ''
+            export RUSTFLAGS="--cfg tokio_unstable"
+            export RUSTDOCFLAGS="--cfg tokio_unstable"
             export RUST_LOG="info"
           '';
         };

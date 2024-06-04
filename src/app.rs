@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
-use reqwest::Client;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::config;
 use crate::crates_io::CratesIo;
@@ -18,7 +17,8 @@ struct Crate {
 pub struct App {
     instructions: String,
     work_dir: PathBuf,
-    crate_tool: Option<String>,
+    repo_url: Option<String>,
+    repo_name: Option<String>,
     groq: Groq,
     github: Github,
     crates_io: CratesIo,
@@ -38,29 +38,35 @@ impl App {
         App {
             instructions: cli_args.instructions.clone(),
             work_dir: cli_args.work_dir.clone(),
-            crate_tool: None,
+            repo_url: None,
+            repo_name: None,
             groq,
             github,
             crates_io,
         }
     }
 
-    pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let tool = self.identify_tool().await?;
+    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+        let tool = self
+            .identify_tool()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Failed to identify tool"))?;
 
-        if let Some(tool) = tool {
-            if let Some(crate_tool) = self.crates_io.search(&tool).await {
-                let forked_repo_url = self.github.fork_repo(&crate_tool).await?;
-                self.github
-                    .clone_repo(&forked_repo_url, &self.work_dir)
-                    .await;
-            } else {
-                error!("Failed to find crate on crates.io");
-                return Err(anyhow::anyhow!("Failed to find crate on crates.io"));
-            }
-        } else {
-            return Err(anyhow::anyhow!("Failed to identify tool"));
-        }
+        let repo_url = self
+            .crates_io
+            .search(&tool)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Failed to find crate on crates.io"))?;
+
+        self.repo_url = Some(repo_url.clone());
+        let repo_name = repo_url.split('/').last().unwrap().to_string();
+        self.repo_name = Some(repo_name.clone());
+
+        self.github
+            .fork_and_clone(&repo_url, &self.work_dir)
+            .await?;
+
+        self.ensure_flake_nix(&repo_name).await?;
 
         Ok(())
     }
@@ -74,5 +80,40 @@ impl App {
             first_tool.clone().unwrap_or("None".to_string())
         );
         Ok(first_tool)
+    }
+
+    async fn ensure_flake_nix(&self, crate_name: &str) -> Result<(), anyhow::Error> {
+        let flake_path = self.work_dir.join(crate_name).join("flake.nix");
+        let reference_flake_path = PathBuf::from(
+            "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
+        );
+        info!("Reference flake path: {}", reference_flake_path.display());
+
+        if !reference_flake_path.exists() {
+            info!(
+                "Reference flake.nix not found at {}",
+                reference_flake_path.display()
+            );
+            return Ok(());
+        }
+
+        if flake_path.exists() {
+            info!("Found a flake.nix at {}", flake_path.display());
+        } else {
+            info!("Creating flake.nix at {}", flake_path.display());
+            let contents = std::fs::read_to_string(&reference_flake_path).map_err(|e| {
+                info!("Failed to read reference flake.nix: {}", e);
+                e
+            })?;
+            std::fs::write(&flake_path, contents).map_err(|e| {
+                info!(
+                    "Failed to write to flake.nix at {}: {}",
+                    flake_path.display(),
+                    e
+                );
+                e
+            })?;
+        }
+        Ok(())
     }
 }

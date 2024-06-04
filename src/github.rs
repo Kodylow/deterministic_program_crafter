@@ -1,3 +1,4 @@
+use std::fs::remove_dir_all;
 use std::path::PathBuf;
 
 use anyhow::Error;
@@ -16,6 +17,15 @@ impl Github {
             client: Client::new(),
             github_token,
         }
+    }
+
+    pub async fn fork_and_clone(
+        &self,
+        crate_tool: &str,
+        work_dir: &PathBuf,
+    ) -> Result<(), anyhow::Error> {
+        let forked_repo_url = self.fork_repo(crate_tool).await?;
+        self.clone_repo(&forked_repo_url, work_dir).await
     }
 
     pub async fn fork_repo(&self, repo_url: &str) -> Result<String, Error> {
@@ -66,13 +76,25 @@ impl Github {
         }
     }
 
-    pub async fn clone_repo(&self, repo_url: &str, work_dir: &PathBuf) {
+    pub async fn clone_repo(
+        &self,
+        repo_url: &str,
+        work_dir: &PathBuf,
+    ) -> Result<(), anyhow::Error> {
         let repo_name = repo_url.split("/").last().unwrap();
         let repo_path = work_dir.join(repo_name);
-        println!("Cloning repository: {}", repo_url);
+
+        // Check if the directory exists and delete it if it does
+        if repo_path.exists() {
+            info!("Deleting existing directory: {}", repo_path.display());
+            remove_dir_all(&repo_path)
+                .map_err(|e| anyhow::anyhow!("Failed to delete existing directory: {}", e))?;
+        }
+
+        info!("Cloning repository: {}", repo_url);
         match git2::Repository::clone(repo_url, &repo_path) {
-            Ok(_) => println!("Repository cloned successfully."),
-            Err(e) => println!("Failed to clone repository: {}", e),
+            Ok(_) => Ok(()),
+            Err(e) => Err(anyhow::anyhow!("Failed to clone repository: {}", e)),
         }
     }
 }
