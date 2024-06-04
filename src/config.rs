@@ -15,4 +15,8 @@ pub struct CliArgs {
     /// The directory to clone the repository into
     #[arg(short, long, default_value = "./work_dir")]
     pub work_dir: std::path::PathBuf,
+
+    /// The Groq API key
+    #[arg(short, long, env = "GROQ_API_KEY")]
+    pub groq_api_key: String,
 }

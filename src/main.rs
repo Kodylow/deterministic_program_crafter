@@ -1,36 +1,25 @@
+use app::App;
 use clap::Parser;
-use git2::Repository;
-use reqwest::Client;
-use serde::Deserialize;
 
+pub mod app;
 pub mod config;
-
-#[derive(Deserialize)]
-struct Crate {
-    crate_id: String,
-    repository: Option<String>,
-}
+pub mod github;
+pub mod groq;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), anyhow::Error> {
+    init_logging_and_env()?;
+
     let cli_args = config::CliArgs::parse();
+    let app = App::new(&cli_args).await;
 
-    let client = Client::new();
-    let request_url = format!("https://crates.io/api/v1/crates/{}", cli_args.tool);
-    let response = client.get(&request_url).send().await.unwrap();
+    app.run().await;
 
-    if response.status().is_success() {
-        let crate_data: Crate = response.json().await.unwrap();
-        if let Some(repo_url) = crate_data.repository {
-            println!("Cloning repository: {}", repo_url);
-            match Repository::clone(&repo_url, &cli_args.work_dir) {
-                Ok(_) => println!("Repository cloned successfully."),
-                Err(e) => println!("Failed to clone repository: {}", e),
-            }
-        } else {
-            println!("No repository found for {}", cli_args.tool);
-        }
-    } else {
-        println!("Failed to fetch data for {}", cli_args.tool);
-    }
+    Ok(())
+}
+
+fn init_logging_and_env() -> Result<(), anyhow::Error> {
+    tracing_subscriber::fmt::init();
+    dotenv::dotenv().ok();
+    Ok(())
 }

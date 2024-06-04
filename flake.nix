@@ -1,109 +1,44 @@
 {
-  description =
-    "Deterministic Program Crafter is an agent tool for building other agent tools correctly, deterministically, and reproducibly.";
+  description = "Deterministic Program Crafter";
 
   inputs = {
-    nixpkgs = { url = "github:nixos/nixpkgs/nixos-unstable"; };
-
-    fenix = {
-      url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    flakebox = {
-      url = "github:dpc/flakebox";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.fenix.follows = "fenix";
-    };
-
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-
+    flakebox.url = "github:rustshop/flakebox";
   };
 
-  outputs = { self, nixpkgs, flakebox, fenix, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, flakebox }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
-        lib = pkgs.lib;
-        flakeboxLib = flakebox.lib.${system} { };
-        rustSrc = flakeboxLib.filterSubPaths {
+        projectName = "deterministic_program_crafter";
+
+        flakeboxLib = flakebox.lib.${system} {
+          config = { github.ci.buildOutputs = [ ".#ci.${projectName}" ]; };
+        };
+
+        buildPaths = [ "Cargo.toml" "Cargo.lock" "src" ];
+
+        buildSrc = flakeboxLib.filterSubPaths {
           root = builtins.path {
-            name = "coincaddies";
+            name = projectName;
             path = ./.;
           };
-          paths = [
-            "Cargo.toml"
-            "Cargo.lock"
-            ".cargo"
-            "src"
-            "multimint"
-            "coincaddies"
-          ];
+          paths = buildPaths;
         };
 
-        toolchainArgs = let llvmPackages = pkgs.llvmPackages_11;
-        in {
-          extraRustFlags = "--cfg tokio_unstable";
-
-          components = [ "rustc" "cargo" "clippy" "rust-analyzer" "rust-src" ];
-
-          args = {
-            nativeBuildInputs =
-              [ pkgs.wasm-bindgen-cli pkgs.geckodriver pkgs.wasm-pack ]
-              ++ lib.optionals (!pkgs.stdenv.isDarwin) [ pkgs.firefox ];
-          };
-        } // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          # on Darwin newest stdenv doesn't seem to work
-          # linking rocksdb
-          stdenv = pkgs.clang11Stdenv;
-          clang = llvmPackages.clang;
-          libclang = llvmPackages.libclang.lib;
-          clang-unwrapped = llvmPackages.clang-unwrapped;
-        };
-
-        # all standard toolchains provided by flakebox
-        toolchainsStd = flakeboxLib.mkStdFenixToolchains toolchainArgs;
-
-        toolchainsNative = (pkgs.lib.getAttrs [ "default" ] toolchainsStd);
-
-        toolchainNative =
-          flakeboxLib.mkFenixMultiToolchain { toolchains = toolchainsNative; };
-
-        commonArgs = {
-          buildInputs = [ ] ++ lib.optionals pkgs.stdenv.isDarwin
-            [ pkgs.darwin.apple_sdk.frameworks.SystemConfiguration ];
-          nativeBuildInputs = [ pkgs.pkg-config ];
-        };
-        outputs = (flakeboxLib.craneMultiBuild { toolchains = toolchainsStd; })
-          (craneLib':
-            let
-              craneLib = (craneLib'.overrideArgs {
-                pname = "flexbox-multibuild";
-                src = rustSrc;
-              }).overrideArgs commonArgs;
-            in rec {
-              workspaceDeps = craneLib.buildWorkspaceDepsOnly { };
-              workspaceBuild =
-                craneLib.buildWorkspace { cargoArtifacts = workspaceDeps; };
-              coincaddies = craneLib.buildPackageGroup {
-                pname = "coincaddies";
-                packages = [ "coincaddies" ];
-                mainProgram = "coincaddies";
-              };
+        multiBuild = (flakeboxLib.craneMultiBuild { }) (craneLib':
+          let
+            craneLib = (craneLib'.overrideArgs {
+              pname = projectName;
+              src = buildSrc;
+              nativeBuildInputs = [ ];
             });
+          in { ${projectName} = craneLib.buildPackage { }; });
       in {
-        legacyPackages = outputs;
-        packages = { default = outputs.coincaddies; };
-        devShells = flakeboxLib.mkShells {
-          packages = [ ];
-          buildInputs = commonArgs.buildInputs;
-          nativeBuildInputs =
-            [ pkgs.mprocs pkgs.just pkgs.bun commonArgs.nativeBuildInputs ];
-          shellHook = ''
-            export RUSTFLAGS="--cfg tokio_unstable"
-            export RUSTDOCFLAGS="--cfg tokio_unstable"
-            export RUST_LOG="info"
-          '';
-        };
+        packages.default = multiBuild.${projectName};
+
+        legacyPackages = multiBuild;
+
+        devShells = flakeboxLib.mkShells { };
       });
 }
