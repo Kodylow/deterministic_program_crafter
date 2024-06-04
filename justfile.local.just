@@ -1,4 +1,4 @@
-clean-work-dir:
+cleanlocal:
     rm -rf ./work_dir
 
 run-local cargo-cookie:
