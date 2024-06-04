@@ -4,6 +4,7 @@ use clap::Parser;
 pub mod app;
 pub mod config;
 pub mod crates_io;
+pub mod flake;
 pub mod github;
 pub mod groq;
 

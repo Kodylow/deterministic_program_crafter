@@ -5,6 +5,7 @@ use tracing::info;
 
 use crate::config;
 use crate::crates_io::CratesIo;
+use crate::flake::Flake;
 use crate::github::Github;
 use crate::groq::Groq;
 
@@ -22,6 +23,7 @@ pub struct App {
     groq: Groq,
     github: Github,
     crates_io: CratesIo,
+    flake: Option<Flake>,
 }
 
 impl App {
@@ -29,7 +31,6 @@ impl App {
         let groq = Groq::new(&cli_args.groq_api_key);
         let github = Github::new(cli_args.github_token.clone());
         let crates_io = CratesIo::new(cli_args.cargo_cookie.clone());
-
         // Ensure the work directory exists
         if !cli_args.work_dir.exists() {
             std::fs::create_dir_all(&cli_args.work_dir).expect("Failed to create work directory");
@@ -43,6 +44,7 @@ impl App {
             groq,
             github,
             crates_io,
+            flake: None,
         }
     }
 
@@ -66,7 +68,14 @@ impl App {
             .fork_and_clone(&repo_url, &self.work_dir)
             .await?;
 
-        self.ensure_flake_nix(&repo_name).await?;
+        self.flake = Some(Flake::new(&repo_name, &self.work_dir));
+        self.flake
+            .as_ref()
+            .unwrap()
+            .ensure_flake_nix(&PathBuf::from(
+                "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
+            ))
+            .await?;
 
         Ok(())
     }
@@ -80,40 +89,5 @@ impl App {
             first_tool.clone().unwrap_or("None".to_string())
         );
         Ok(first_tool)
-    }
-
-    async fn ensure_flake_nix(&self, crate_name: &str) -> Result<(), anyhow::Error> {
-        let flake_path = self.work_dir.join(crate_name).join("flake.nix");
-        let reference_flake_path = PathBuf::from(
-            "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
-        );
-        info!("Reference flake path: {}", reference_flake_path.display());
-
-        if !reference_flake_path.exists() {
-            info!(
-                "Reference flake.nix not found at {}",
-                reference_flake_path.display()
-            );
-            return Ok(());
-        }
-
-        if flake_path.exists() {
-            info!("Found a flake.nix at {}", flake_path.display());
-        } else {
-            info!("Creating flake.nix at {}", flake_path.display());
-            let contents = std::fs::read_to_string(&reference_flake_path).map_err(|e| {
-                info!("Failed to read reference flake.nix: {}", e);
-                e
-            })?;
-            std::fs::write(&flake_path, contents).map_err(|e| {
-                info!(
-                    "Failed to write to flake.nix at {}: {}",
-                    flake_path.display(),
-                    e
-                );
-                e
-            })?;
-        }
-        Ok(())
     }
 }
