@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use git2::Repository;
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::config;
+use crate::github::Github;
 use crate::groq::Groq;
 
 #[derive(Deserialize)]
@@ -19,6 +19,7 @@ pub struct App {
     work_dir: PathBuf,
     crate_tool: Option<String>,
     groq: Groq,
+    github: Github,
     cargo_cookie: String,
     client: Client,
 }
@@ -26,6 +27,7 @@ pub struct App {
 impl App {
     pub async fn new(cli_args: &config::CliArgs) -> App {
         let groq = Groq::new(&cli_args.groq_api_key);
+        let github = Github::new(cli_args.github_token.clone());
         let client = Client::new();
 
         // Ensure the work directory exists
@@ -38,19 +40,23 @@ impl App {
             work_dir: cli_args.work_dir.clone(),
             crate_tool: None,
             groq,
+            github,
             cargo_cookie: cli_args.cargo_cookie.clone(),
             client,
         }
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let keywords = self.identify_tool().await?;
+        let tool = self.identify_tool().await?;
 
-        if let Some(keywords) = keywords {
-            if let Some(crate_tool) = self.search_crates_io(&keywords).await {
-                self.clone_repo(&crate_tool).await;
+        if let Some(tool) = tool {
+            if let Some(crate_tool) = self.search_crates_io(&tool).await {
+                let forked_repo_url = self.github.fork_repo(&crate_tool).await?;
+                self.github
+                    .clone_repo(&forked_repo_url, &self.work_dir)
+                    .await;
             } else {
-                println!("Failed to find crate on crates.io");
+                error!("Failed to find crate on crates.io");
                 return Err(anyhow::anyhow!("Failed to find crate on crates.io"));
             }
         } else {
@@ -125,14 +131,6 @@ impl App {
                 error!("Error fetching crate info: {}", e);
                 None
             }
-        }
-    }
-
-    async fn clone_repo(&self, repo_url: &str) {
-        println!("Cloning repository: {}", repo_url);
-        match Repository::clone(repo_url, &self.work_dir) {
-            Ok(_) => println!("Repository cloned successfully."),
-            Err(e) => println!("Failed to clone repository: {}", e),
         }
     }
 }

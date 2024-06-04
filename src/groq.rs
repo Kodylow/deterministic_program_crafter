@@ -21,11 +21,10 @@ pub struct Groq {
 impl Groq {
     pub fn new(api_key: &str) -> Groq {
         let base_url = String::from(GROQ_API_BASE_URL);
-        let client = Client::new();
         Groq {
             api_key: api_key.to_string(),
             base_url,
-            client,
+            client: Client::new(),
             model: GROQ_BASE_MODEL.to_string(),
         }
     }

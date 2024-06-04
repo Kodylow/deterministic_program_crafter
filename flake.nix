@@ -23,7 +23,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-        packageName = "your-package-name";
+        packageName = "deterministic-program-crafter";
         flakeboxLib = flakebox.lib.${system} { };
         rustSrc = flakeboxLib.filterSubPaths {
           root = builtins.path {
@@ -92,7 +92,7 @@
             });
       in {
         legacyPackages = outputs;
-        packages = { default = outputs.packageName; };
+        packages = { default = outputs.package; };
         devShells = flakeboxLib.mkShells {
           packages = [ ];
           buildInputs = commonArgs.buildInputs;

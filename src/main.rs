@@ -3,6 +3,7 @@ use clap::Parser;
 
 pub mod app;
 pub mod config;
+pub mod github;
 pub mod groq;
 
 #[tokio::main]

@@ -6,18 +6,22 @@ use clap::Parser;
 #[clap(version = "1.0", author = "Kody Low")]
 pub struct CliArgs {
     /// The agent instructions
-    #[clap(short, long)]
+    #[clap(long)]
     pub instructions: String,
 
     /// The directory to clone the repository into
-    #[clap(short, long, default_value = "./work_dir")]
+    #[clap(long, default_value = "./work_dir")]
     pub work_dir: std::path::PathBuf,
 
     /// The Groq API key
-    #[clap(short, long, env = "GROQ_API_KEY")]
+    #[clap(long, env = "GROQ_API_KEY")]
     pub groq_api_key: String,
 
+    /// Github token for forking repositories
+    #[clap(long, env = "GITHUB_TOKEN")]
+    pub github_token: String,
+
     /// Cookie for crates.io session
-    #[clap(short, long, env = "CARGO_COOKIE")]
+    #[clap(long, env = "CARGO_COOKIE")]
     pub cargo_cookie: String,
 }
