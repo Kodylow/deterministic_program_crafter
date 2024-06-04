@@ -16,4 +16,8 @@ pub struct CliArgs {
     /// The Groq API key
     #[clap(short, long, env = "GROQ_API_KEY")]
     pub groq_api_key: String,
+
+    /// Cookie for crates.io session
+    #[clap(short, long, env = "CARGO_COOKIE")]
+    pub cargo_cookie: String,
 }

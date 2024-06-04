@@ -63,7 +63,7 @@ impl Groq {
 
         if let Some(choice) = response.choices.first() {
             let crates_list = choice.message.content.trim();
-            if crates_list.contains(",") {
+            if crates_list.contains(',') {
                 Ok(crates_list
                     .split(',')
                     .map(|s| s.trim().to_string())

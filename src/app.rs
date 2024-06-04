@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use git2::Repository;
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::config;
 use crate::groq::Groq;
@@ -19,6 +19,7 @@ pub struct App {
     work_dir: PathBuf,
     crate_tool: Option<String>,
     groq: Groq,
+    cargo_cookie: String,
     client: Client,
 }
 
@@ -37,6 +38,7 @@ impl App {
             work_dir: cli_args.work_dir.clone(),
             crate_tool: None,
             groq,
+            cargo_cookie: cli_args.cargo_cookie.clone(),
             client,
         }
     }
@@ -61,20 +63,68 @@ impl App {
     async fn identify_tool(&self) -> Result<Option<String>, anyhow::Error> {
         let crates = self.groq.get_crates_list(&self.instructions).await?;
         info!("Tools identified: {}", crates.join(", "));
-
-        Ok(crates.first().cloned())
+        let first_tool = crates.first().cloned();
+        info!(
+            "First tool: {}",
+            first_tool.clone().unwrap_or("None".to_string())
+        );
+        Ok(first_tool)
     }
 
-    async fn search_crates_io(&self, keywords: &str) -> Option<String> {
-        let request_url = format!("https://crates.io/api/v1/crates/{}", keywords);
-        let response = self.client.get(&request_url).send().await.unwrap();
+    async fn search_crates_io(&self, crate_name: &str) -> Option<String> {
+        info!("Searching crates.io for {}", crate_name);
+        let request_url = format!("https://crates.io/api/v1/crates/{}", crate_name);
+        let client = self.client.clone();
+        let cookie = format!("cargo_session={}", self.cargo_cookie);
 
-        if response.status().is_success() {
-            let crate_data: Crate = response.json().await.unwrap();
-            crate_data.repository
-        } else {
-            println!("Failed to fetch data for {}", keywords);
-            None
+        let response = client
+            .get(&request_url)
+            .header(reqwest::header::COOKIE, cookie)
+            .header(
+                reqwest::header::USER_AGENT,
+                "my_crawler (help@mycrawler.com)",
+            ) // Add this line
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read body".to_string());
+
+                info!("Response Status: {}", status);
+                // info!("Response Headers: {:?}", headers);
+                // info!("Response Body: {}", body);
+
+                if status.is_success() {
+                    match serde_json::from_str::<serde_json::Value>(&body) {
+                        Ok(crate_data) => {
+                            let repo_url = crate_data["crate"]["repository"]
+                                .as_str()
+                                .map(|s| s.to_string());
+                            info!("Repository URL: {:?}", repo_url);
+                            repo_url
+                        }
+                        Err(e) => {
+                            error!("Failed to parse JSON response: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    error!(
+                        "Failed to fetch crate info from crates.io with status: {}",
+                        status
+                    );
+                    None
+                }
+            }
+            Err(e) => {
+                error!("Error fetching crate info: {}", e);
+                None
+            }
         }
     }
 
