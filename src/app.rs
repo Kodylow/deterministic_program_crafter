@@ -67,10 +67,24 @@ impl App {
         let tool = self.identify_and_validate_tool().await?;
         let repo_url = self.find_crate_and_set_repo(tool).await?;
         self.prepare_repository(repo_url).await?;
-        self.process_repository_files().await?;
+        self.github
+            .create_branch(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                "nix-flake",
+            )
+            .await?;
+
         // First PR: flake.nix
+        self.flake
+            .as_ref()
+            .unwrap()
+            .ensure_flake_nix(&PathBuf::from(
+                "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
+            ))
+            .await?;
         self.update_and_write_flake().await?;
         self.flake.as_ref().unwrap().check_flake_nix().await?;
+        self.commit_changes(true).await?;
         self.push_changes(false).await?;
         self.github
             .open_pull_request(
@@ -152,18 +166,10 @@ impl App {
         self.github
             .fork_and_clone(&repo_url, &self.work_dir)
             .await?;
-        self.github.create_branch(&repo_dir, "flakebot").await?;
         self.flake = Some(Flake::new(
             &self.repo_name.as_ref().unwrap(),
             &self.work_dir,
         ));
-        self.flake
-            .as_ref()
-            .unwrap()
-            .ensure_flake_nix(&PathBuf::from(
-                "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
-            ))
-            .await?;
 
         // Modify .gitignore file
         info!("Modifying .gitignore file...");
@@ -203,6 +209,7 @@ impl App {
 
         let git_diff = git_diff_command.output().await?.stdout;
         let git_diff_str = String::from_utf8(git_diff)?;
+        info!("Git diff: {}", git_diff_str);
         let commit_message = self.groq.generate_commit_message(&git_diff_str).await?;
 
         info!("Committing changes...");

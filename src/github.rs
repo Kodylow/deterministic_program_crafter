@@ -38,10 +38,10 @@ impl Github {
         let repo_name = repo_url.split('/').last().unwrap();
         let repo_owner = repo_url.split('/').nth(3).unwrap(); // Assuming URL is in the format https://github.com/{owner}/{repo}
 
-        // if repo_owner == "kodylow" {
-        //     info!("Repository belongs to 'kodylow', no need to fork.");
-        //     return Ok(repo_url.to_string());
-        // }
+        if repo_owner == "kodylow" {
+            info!("Repository belongs to 'kodylow', no need to fork.");
+            return Ok(repo_url.to_string());
+        }
 
         let user_repos_url = format!("https://api.github.com/user/repos");
         let repos_response = self
@@ -62,7 +62,6 @@ impl Github {
             }
         } else {
             error!("Failed to retrieve user repositories");
-            return Err(anyhow::anyhow!("Failed to retrieve user repositories"));
         }
 
         let fork_url = format!("https://api.github.com/repos/{}/forks", repo_name);
