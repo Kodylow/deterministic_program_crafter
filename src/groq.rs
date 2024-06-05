@@ -6,8 +6,9 @@ use tokio::process::Command;
 use tracing::{error, info};
 
 use crate::templates::{
-    GROQ_ADD_DEPENDENCY_TEMPLATE, GROQ_CRATES_TEMPLATE, GROQ_CRATE_DESCRIPTION_TEMPLATE,
-    GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE, GROQ_REWRITE_MAIN_RS_TEMPLATE,
+    GROQ_ADD_DEPENDENCY_TEMPLATE, GROQ_COMMIT_MESSAGE_TEMPLATE, GROQ_CRATES_TEMPLATE,
+    GROQ_CRATE_DESCRIPTION_TEMPLATE, GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE,
+    GROQ_PR_MESSAGE_TEMPLATE, GROQ_PR_TITLE_TEMPLATE, GROQ_REWRITE_MAIN_RS_TEMPLATE,
     GROQ_VALIDATE_BINARY_TEMPLATE,
 };
 
@@ -33,6 +34,22 @@ impl Groq {
     }
 
     pub async fn request_chat_completion(
+        &self,
+        message: &str,
+    ) -> Result<ChatCompletionResponse, Error> {
+        // Back off for 2 seconds before retrying
+        loop {
+            match self.inner_request_chat_completion(message).await {
+                Ok(chat_response) => return Ok(chat_response),
+                Err(e) => {
+                    error!("Hit groq API limits: {}, backing off for 10 seconds", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
+            }
+        }
+    }
+
+    pub async fn inner_request_chat_completion(
         &self,
         message: &str,
     ) -> Result<ChatCompletionResponse, Error> {
@@ -108,12 +125,12 @@ impl Groq {
         &self,
         instructions: &str,
         main_rs_contents: &str,
-        errors: &str,
+        // errors: &str,
     ) -> Result<String, anyhow::Error> {
         let message = GROQ_VALIDATE_BINARY_TEMPLATE
             .replace("{user_instructions}", instructions)
-            .replace("{main_rs_contents}", main_rs_contents)
-            .replace("{errors}", errors);
+            .replace("{main_rs_contents}", main_rs_contents);
+        // .replace("{errors}", errors);
         let response = self.request_chat_completion(&message).await?;
         if let Some(choice) = response.choices.first() {
             if choice.message.content.trim() == "true" {
@@ -190,6 +207,56 @@ impl Groq {
         } else {
             Err(anyhow::Error::msg("No response from validation request"))
         }
+    }
+
+    pub async fn generate_commit_message(&self, git_diff: &str) -> Result<String, anyhow::Error> {
+        let message = GROQ_COMMIT_MESSAGE_TEMPLATE.replace("{git_diff}", git_diff);
+        let response = self.request_chat_completion(&message).await?;
+
+        if let Some(choice) = response.choices.first() {
+            Ok(choice.message.content.clone())
+        } else {
+            error!("No choices returned in the response for commit message generation");
+            Err(anyhow::anyhow!("No choices in response for commit message"))
+        }
+    }
+
+    pub async fn generate_pr_message_and_title(
+        &self,
+        github_token: &str,
+        git_diff: &str,
+    ) -> Result<(String, String), anyhow::Error> {
+        let message = GROQ_PR_MESSAGE_TEMPLATE
+            .replace("{github_token}", github_token)
+            .replace("{git_diff}", git_diff);
+        let message_response = self.request_chat_completion(&message).await?;
+        let title = GROQ_PR_TITLE_TEMPLATE.replace(
+            "{pr_message}",
+            &message_response
+                .choices
+                .first()
+                .unwrap()
+                .message
+                .content
+                .clone(),
+        );
+        let title_response = self.request_chat_completion(&title).await?;
+        Ok((
+            title_response
+                .choices
+                .first()
+                .unwrap()
+                .message
+                .content
+                .clone(),
+            message_response
+                .choices
+                .first()
+                .unwrap()
+                .message
+                .content
+                .clone(),
+        ))
     }
 }
 

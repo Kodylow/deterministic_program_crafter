@@ -38,3 +38,15 @@ pub const GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE: &str =
     Main.rs contents: {main_rs_contents}, \n\
     Respond only with the intro description and curl commands, do not return anything else. \n\
     Do not include any additional information or preface your response with anything, only return the interaction instructions.";
+pub const GROQ_COMMIT_MESSAGE_TEMPLATE: &str =
+    "Generate a concise commit message of 5-7 wordsbased on the following git diff: \n\
+    Git diff: {git_diff}, \n\
+    Respond only with the commit message, do not return anything else.";
+pub const GROQ_PR_MESSAGE_TEMPLATE: &str =
+    "Generate a detailed pull request message based on the following git diff: \n\
+    Git diff: {git_diff}, \n\
+    Respond only with the pull request message, do not return anything else.";
+pub const GROQ_PR_TITLE_TEMPLATE: &str =
+    "Generate a detailed pull request title of 5-7 words based on the following pull request summary: \n\
+    Pull request summary: {pr_message}, \n\
+    Respond only with the pull request title in 5-7 words, do not return anything else.";

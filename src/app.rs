@@ -1,6 +1,8 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
+use fs_extra::dir;
+use fs_extra::dir::CopyOptions;
 use serde::Deserialize;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -24,8 +26,8 @@ use crate::groq::Groq;
 
 #[derive(Deserialize)]
 struct Crate {
-    crate_id: String,
-    repository: Option<String>,
+    _crate_id: String,
+    _repository: Option<String>,
 }
 
 pub struct App {
@@ -63,36 +65,54 @@ impl App {
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let tool = self.identify_and_validate_tool().await?;
-        // wait_for_enter!();
-
         let repo_url = self.find_crate_and_set_repo(tool).await?;
-        // wait_for_enter!();
-
         self.prepare_repository(repo_url).await?;
-        // wait_for_enter!();
-
         self.process_repository_files().await?;
-        // wait_for_enter!();
-
+        // First PR: flake.nix
         self.update_and_write_flake().await?;
-        // wait_for_enter!();
-
         self.flake.as_ref().unwrap().check_flake_nix().await?;
-        // wait_for_enter!();
+        self.push_changes(false).await?;
+        self.github
+            .open_pull_request(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                &self.groq,
+            )
+            .await?;
+        // Second PR: flakebox
+        self.github
+            .create_branch(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                "flakebox",
+            )
+            .await?;
+        self.install_flakebox_files(&self.work_dir.join(self.repo_name.as_ref().unwrap()))
+            .await?;
+        self.push_changes(false).await?;
+        self.github
+            .open_pull_request(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                &self.groq,
+            )
+            .await?;
 
+        // Third PR: main.rs updates
+        self.github
+            .create_branch(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                "new-feature",
+            )
+            .await?;
         self.validate_and_check_program(self.work_dir.join(self.repo_name.as_ref().unwrap()))
             .await?;
-        // wait_for_enter!();
-
-        self.stage_changes().await?;
-        // wait_for_enter!();
-
         let binary_path = self.build_and_output_binary().await?;
-        // wait_for_enter!();
-
         self.run_binary(&binary_path).await?;
-        // wait_for_enter!();
-
+        self.push_changes(true).await?;
+        self.github
+            .open_pull_request(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                &self.groq,
+            )
+            .await?;
         Ok(())
     }
 
@@ -128,15 +148,11 @@ impl App {
     }
 
     async fn prepare_repository(&mut self, repo_url: String) -> Result<(), anyhow::Error> {
+        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
         self.github
             .fork_and_clone(&repo_url, &self.work_dir)
             .await?;
-        self.github
-            .create_branch(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                "flakebot",
-            )
-            .await?;
+        self.github.create_branch(&repo_dir, "flakebot").await?;
         self.flake = Some(Flake::new(
             &self.repo_name.as_ref().unwrap(),
             &self.work_dir,
@@ -148,16 +164,71 @@ impl App {
                 "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
             ))
             .await?;
+
+        // Modify .gitignore file
+        info!("Modifying .gitignore file...");
+        let gitignore_path = repo_dir.join(".gitignore");
+        let gitignore_contents = "/target\n/result\n/work_dir\n/db\n/tmp\n/nix\n/result\n";
+        if !gitignore_path.exists() {
+            tokio::fs::File::create(&gitignore_path).await?;
+        }
+        tokio::fs::write(&gitignore_path, gitignore_contents).await?;
         Ok(())
     }
 
-    async fn stage_changes(&self) -> Result<(), anyhow::Error> {
+    async fn commit_changes(&self, main_diff: bool) -> Result<(), anyhow::Error> {
         info!("Staging changes...");
         let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
-        let repo = git2::Repository::open(&repo_dir)?;
-        let mut index = repo.index()?;
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
-        index.write()?;
+
+        let status = Command::new("git")
+            .arg("add")
+            .arg("--all")
+            .current_dir(&repo_dir)
+            .status()
+            .await?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!("Failed to add changes"));
+        }
+
+        // Generate the commit message
+        let mut git_diff_command = {
+            let mut cmd = Command::new("git");
+            cmd.arg("diff").arg("--cached");
+            if main_diff {
+                cmd.arg("src/main.rs"); // Targeting only main.rs
+            }
+            cmd
+        };
+
+        let git_diff = git_diff_command.output().await?.stdout;
+        let git_diff_str = String::from_utf8(git_diff)?;
+        let commit_message = self.groq.generate_commit_message(&git_diff_str).await?;
+
+        info!("Committing changes...");
+        let status = Command::new("git")
+            .arg("commit")
+            .arg("-m")
+            .arg(commit_message)
+            .arg("--author")
+            .arg("FlakeBot <flakebot@flakebot.com>")
+            .arg("--no-verify")
+            .current_dir(&repo_dir)
+            .status()
+            .await?;
+
+        if !status.success() {
+            error!("Nothing to commit");
+        }
+
+        Ok(())
+    }
+
+    pub async fn push_changes(&self, main_diff: bool) -> Result<(), anyhow::Error> {
+        self.commit_changes(main_diff).await?;
+        self.github
+            .push_changes(&self.work_dir.join(self.repo_name.as_ref().unwrap()))
+            .await?;
         Ok(())
     }
 
@@ -193,7 +264,6 @@ impl App {
 
     async fn validate_and_check_program(&self, repo_dir: PathBuf) -> Result<bool, anyhow::Error> {
         // Run cargo check initially
-        let errors = self.cargo_check(&repo_dir).await?;
 
         let initial_main_rs_contents = std::fs::read_to_string(&repo_dir.join("src/main.rs"))?;
         let mut main_rs_contents = initial_main_rs_contents.clone();
@@ -201,7 +271,7 @@ impl App {
         loop {
             let instructions = self
                 .groq
-                .validate_binary(&self.instructions, &main_rs_contents, &errors)
+                .validate_binary(&self.instructions, &main_rs_contents)
                 .await?;
 
             let first_word = instructions.split_whitespace().next().unwrap_or("");
@@ -261,15 +331,19 @@ impl App {
             .await?;
 
         // add cargo deps
-        self.groq.add_cargo_deps(&new_contents, &repo_dir).await?;
+        let _ = self
+            .groq
+            .add_cargo_deps(&new_contents, &repo_dir)
+            .await
+            .map_err(|e| {
+                error!("Failed to add cargo dependencies: {}", e);
+            });
 
         // Remove Markdown code block indicators and any leading text before the code
         // starts
         let cleaned_contents = new_contents
             .lines()
-            .filter(|line| {
-                !line.starts_with("```") && !line.contains("Here is the rewritten main.rs file:")
-            })
+            .filter(|line| !line.starts_with("```") && !line.contains("main.rs"))
             .collect::<Vec<&str>>()
             .join("\n");
 
@@ -398,6 +472,36 @@ impl App {
             }
 
             line.clear(); // Clear the line buffer for the next input
+        }
+
+        Ok(())
+    }
+
+    pub async fn install_flakebox_files(&self, repo_dir: &PathBuf) -> Result<(), anyhow::Error> {
+        info!("Installing flakebox files...");
+
+        // List of directories to copy from this level into the repo dir
+        let directories_to_copy = vec![".config", ".github", "misc"];
+        for dir in directories_to_copy {
+            let source = PathBuf::from(format!("{}", dir));
+            let destination = repo_dir;
+            tokio::fs::create_dir_all(&destination).await?;
+            // Assuming recursive copy is needed
+            let mut options = CopyOptions::new(); // Initialize default options
+            options.copy_inside = true; // To copy the contents into the destination
+            dir::copy(&source, &destination, &options)?;
+        }
+
+        // List of files to copy
+        let files_to_copy = vec!["justfile"];
+        for file in files_to_copy {
+            let source = PathBuf::from(format!("{}", file));
+            let destination = repo_dir.join(file);
+            // create the file if it doesn't exist
+            if !destination.exists() {
+                tokio::fs::File::create(&destination).await?;
+            }
+            tokio::fs::copy(&source, &destination).await?;
         }
 
         Ok(())

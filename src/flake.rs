@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use tokio::process::Command;
 use tracing::{error, info};
-
 pub struct Flake {
     pub flake_path: PathBuf,
 }
@@ -85,4 +84,44 @@ impl Flake {
 
         Ok(())
     }
+
+    // pub async fn install_flakebox(&self, repo_dir: &PathBuf) -> Result<(),
+    // anyhow::Error> {     info!("Installing flakebox files...");
+    //     let output = Command::new("flakebox")
+    //         .arg("install")
+    //         .current_dir(repo_dir)
+    //         .output()
+    //         .await?;
+
+    //     if !output.status.success() {
+    //         let errors = String::from_utf8_lossy(&output.stderr);
+    //         error!("flakebox install failed: {}", errors);
+    //         return Err(anyhow::anyhow!("flakebox install failed: {}", errors));
+    //     }
+
+    //     // Create and add a semgrep.yaml file in the .config directory
+    //     let semgrep_yaml_path = repo_dir.join(".config").join("semgrep.yaml");
+    //     std::fs::create_dir_all(repo_dir.join(".config")).map_err(|e| {
+    //         anyhow::anyhow!(
+    //             "Failed to create .config directory at {}: {}",
+    //             repo_dir.join(".config").display(),
+    //             e
+    //         )
+    //     })?;
+    //     std::fs::write(&semgrep_yaml_path, SEMGREP_YAML.to_string()).map_err(|e|
+    // {         anyhow::anyhow!(
+    //             "Failed to write to semgrep.yaml at {}: {}",
+    //             semgrep_yaml_path.display(),
+    //             e
+    //         )
+    //     })?;
+
+    //     if !output.status.success() {
+    //         let errors = String::from_utf8_lossy(&output.stderr);
+    //         error!("flakebox install failed: {}", errors);
+    //         return Err(anyhow::anyhow!("flakebox install failed: {}", errors));
+    //     }
+
+    //     Ok(())
+    // }
 }
