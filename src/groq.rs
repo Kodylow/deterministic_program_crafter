@@ -1,15 +1,17 @@
+use std::path::PathBuf;
+
 use reqwest::{Client, Error};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tokio::process::Command;
+use tracing::{error, info};
+
+use crate::templates::{
+    GROQ_ADD_DEPENDENCY_TEMPLATE, GROQ_CRATES_TEMPLATE, GROQ_CRATE_DESCRIPTION_TEMPLATE,
+    GROQ_REWRITE_MAIN_RS_TEMPLATE, GROQ_VALIDATE_BINARY_TEMPLATE,
+};
 
 pub const GROQ_API_BASE_URL: &str = "https://api.groq.com/openai/v1";
 pub const GROQ_BASE_MODEL: &str = "llama3-70b-8192";
-pub const GROQ_CRATES_TEMPLATE: &str =
-    "Based on the user instructions, identify the necessary Rust crates. \
-    Respond only with a comma-separated list of binaries, such as 'hello_world_tool, http_server, basic_axum_math'. \n\
-    Example: For 'simple http server with post endpoints that do basic math', respond with 'hello_world_tool, http_server, basic_axum_math'. \n\
-    You must include hello_world_tool in the list as the first binary. \n\
-    Do not include descriptions or additional information. User instructions: {user_instructions}";
 
 pub struct Groq {
     api_key: String,
@@ -78,6 +80,96 @@ impl Groq {
             error!("No choices returned in the response");
             Err(anyhow::Error::msg("No choices in response"))
         }
+    }
+
+    pub async fn create_crate_description(
+        &self,
+        cargo_toml_contents: &str,
+        readme_contents: &str,
+        main_rs_contents: &str,
+    ) -> Result<String, anyhow::Error> {
+        let message = GROQ_CRATE_DESCRIPTION_TEMPLATE
+            .replace("{cargo_toml_contents}", cargo_toml_contents)
+            .replace("{readme_contents}", readme_contents)
+            .replace("{main_rs_contents}", main_rs_contents);
+
+        let response = self.request_chat_completion(&message).await?;
+
+        if let Some(choice) = response.choices.first() {
+            Ok(choice.message.content.clone())
+        } else {
+            error!("No choices returned in the response");
+            Err(anyhow::Error::msg("No choices in response"))
+        }
+    }
+
+    pub async fn validate_binary(
+        &self,
+        instructions: &str,
+        main_rs_contents: &str,
+        errors: &str,
+    ) -> Result<String, anyhow::Error> {
+        let message = GROQ_VALIDATE_BINARY_TEMPLATE
+            .replace("{user_instructions}", instructions)
+            .replace("{main_rs_contents}", main_rs_contents)
+            .replace("{errors}", errors);
+        let response = self.request_chat_completion(&message).await?;
+        if let Some(choice) = response.choices.first() {
+            if choice.message.content.trim() == "true" {
+                Ok("true".to_string())
+            } else {
+                Ok(choice.message.content.clone())
+            }
+        } else {
+            Err(anyhow::Error::msg("No response from validation request"))
+        }
+    }
+
+    pub async fn rewrite_main_rs(
+        &self,
+        instructions: &str,
+        main_rs_contents: &str,
+    ) -> Result<String, anyhow::Error> {
+        let message = GROQ_REWRITE_MAIN_RS_TEMPLATE
+            .replace("{user_instructions}", instructions)
+            .replace("{main_rs_contents}", main_rs_contents);
+        let response = self.request_chat_completion(&message).await?;
+        Ok(response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap())
+    }
+
+    pub async fn add_cargo_deps(
+        &self,
+        main_rs_contents: &str,
+        repo_dir: &PathBuf,
+    ) -> Result<(), anyhow::Error> {
+        let message = GROQ_ADD_DEPENDENCY_TEMPLATE.replace("{main_rs_contents}", main_rs_contents);
+        let response = self.request_chat_completion(&message).await?;
+        // run the command
+        let command = response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap();
+        info!("Adding cargo command: {}", command);
+        let add_output = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .current_dir(repo_dir)
+            .output()
+            .await?;
+
+        if !add_output.status.success() {
+            let add_errors = String::from_utf8_lossy(&add_output.stderr);
+            return Err(anyhow::anyhow!(
+                "Failed to add missing crate: {}",
+                add_errors
+            ));
+        }
+        Ok(())
     }
 }
 

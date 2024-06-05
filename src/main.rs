@@ -7,6 +7,7 @@ pub mod crates_io;
 pub mod flake;
 pub mod github;
 pub mod groq;
+pub mod templates;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {

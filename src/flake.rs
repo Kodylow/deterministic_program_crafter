@@ -45,4 +45,24 @@ impl Flake {
         }
         Ok(())
     }
+
+    pub async fn write_description_and_binary_name(
+        &self,
+        crate_description: &str,
+        binary_name: &str,
+    ) -> Result<(), anyhow::Error> {
+        let updated_flake_contents = std::fs::read_to_string(&self.flake_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read flake.nix: {}", e))?;
+        let updated_flake_contents = updated_flake_contents
+            .replace("REPLACE-ME-WITH-CRATE-DESCRIPTION", crate_description)
+            .replace("REPLACE-ME-WITH-CRATE-BINARY-NAME", binary_name);
+        std::fs::write(&self.flake_path, updated_flake_contents).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to write to flake.nix at {}: {}",
+                self.flake_path.display(),
+                e
+            )
+        })?;
+        Ok(())
+    }
 }

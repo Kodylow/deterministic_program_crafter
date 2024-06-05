@@ -1,5 +1,7 @@
 {
-  description = "replace-me-with-crate-description";
+  description = ''
+    REPLACE-ME-WITH-CRATE-DESCRIPTION
+  '';
 
   inputs = {
     nixpkgs = { url = "github:nixos/nixpkgs/nixos-23.11"; };
@@ -23,22 +25,16 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-        packageName = "replace-me-with-crate-binary-name";
+        packageName = ''
+          REPLACE-ME-WITH-CRATE-BINARY-NAME
+        '';
         flakeboxLib = flakebox.lib.${system} { };
         rustSrc = flakeboxLib.filterSubPaths {
           root = builtins.path {
             name = packageName;
             path = ./.;
           };
-          paths = [
-            "Cargo.toml"
-            "Cargo.lock"
-            ".cargo"
-            "src"
-            "multimint"
-            packageName
-            "clientd-stateless"
-          ];
+          paths = [ "Cargo.toml" "Cargo.lock" ".cargo" "src" packageName ];
         };
 
         toolchainArgs = let llvmPackages = pkgs.llvmPackages_11;
