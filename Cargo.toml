@@ -1,5 +1,5 @@
 [package]
-name = "deterministic_program_crafter"
+name = "deterministic-program-crafter"
 version = "0.1.0"
 edition = "2021"
 

@@ -23,7 +23,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-        packageName = "deterministic-program-crafter";
+        packageName = "deterministic_program_crafter";
         flakeboxLib = flakebox.lib.${system} { };
         rustSrc = flakeboxLib.filterSubPaths {
           root = builtins.path {
@@ -69,7 +69,8 @@
           flakeboxLib.mkFenixMultiToolchain { toolchains = toolchainsNative; };
 
         commonArgs = {
-          buildInputs = [ ] ++ lib.optionals pkgs.stdenv.isDarwin
+          buildInputs = [ pkgs.pkg-config pkgs.openssl ]
+            ++ lib.optionals pkgs.stdenv.isDarwin
             [ pkgs.darwin.apple_sdk.frameworks.SystemConfiguration ];
           nativeBuildInputs = [ pkgs.pkg-config ];
         };

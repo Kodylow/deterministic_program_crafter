@@ -2,6 +2,7 @@ use std::fs::remove_dir_all;
 use std::path::PathBuf;
 
 use anyhow::Error;
+use git2::Repository;
 use reqwest::Client;
 use serde_json::Value;
 use tracing::{error, info};
@@ -96,5 +97,14 @@ impl Github {
             Ok(_) => Ok(()),
             Err(e) => Err(anyhow::anyhow!("Failed to clone repository: {}", e)),
         }
+    }
+
+    pub async fn create_branch(&self, repo_dir: &PathBuf, branch_name: &str) -> Result<(), Error> {
+        info!("Creating branch: {}", branch_name);
+        let repo = Repository::open(repo_dir)?;
+        let commit = repo.head()?.peel_to_commit()?;
+        repo.branch(branch_name, &commit, false)?;
+        repo.set_head(&format!("refs/heads/{}", branch_name))?;
+        Ok(())
     }
 }

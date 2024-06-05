@@ -21,12 +21,13 @@ pub const GROQ_VALIDATE_BINARY_TEMPLATE: &str =
     If the program does not satisfy the user instructions, provide detailed instructions on what changes need to be made to the program to satisfy the user instructions. \n\
     Begin your response only with 'Correct' if the program satisfies the instructions, otherwise provide instructions for the necessary changes.";
 pub const GROQ_REWRITE_MAIN_RS_TEMPLATE: &str =
-    "Rewrite the main.rs file to satisfy the user instructions. \n\
+    "Rewrite the main.rs file to satisfy the user instructions, keep all the existing code and only add the minimal changes required to satisfy the user instructions. \n\
     Main.rs contents: {main_rs_contents}, \n\
     User instructions: {user_instructions}, \n\
-    Respond only with the rewritten main.rs file contents. You MUST write a test for any new code you add. \n\
+    Respond only with the rewritten main.rs file contents, keeping the original code and only adding the minimal changes required to satisfy the user instructions. You MUST write a test for any new code you add. \n\
     Do not include any additional information or preface your response with anything, only return the new main.rs file contents.";
 pub const GROQ_ADD_DEPENDENCY_TEMPLATE: &str =
     "Generate a cargo add command to add all the dependencies requires to run the program. \n\
     Program contents: {main_rs_contents}, \n\
+    Example response: cargo add axum serde_json tokio reqwest \n\
     Respond only with the `cargo add` command. If you respond with anything else puppies will die/";

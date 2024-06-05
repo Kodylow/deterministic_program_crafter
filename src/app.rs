@@ -57,7 +57,8 @@ impl App {
         self.update_and_write_flake().await?;
         self.validate_and_check_program(self.work_dir.join(self.repo_name.as_ref().unwrap()))
             .await?;
-
+        self.stage_changes().await?;
+        self.build_and_output_binary().await?;
         Ok(())
     }
 
@@ -96,6 +97,12 @@ impl App {
         self.github
             .fork_and_clone(&repo_url, &self.work_dir)
             .await?;
+        self.github
+            .create_branch(
+                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                "flakebot",
+            )
+            .await?;
         self.flake = Some(Flake::new(
             &self.repo_name.as_ref().unwrap(),
             &self.work_dir,
@@ -107,6 +114,16 @@ impl App {
                 "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
             ))
             .await?;
+        Ok(())
+    }
+
+    async fn stage_changes(&self) -> Result<(), anyhow::Error> {
+        info!("Staging changes...");
+        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
+        let repo = git2::Repository::open(&repo_dir)?;
+        let mut index = repo.index()?;
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+        index.write()?;
         Ok(())
     }
 
@@ -218,5 +235,43 @@ impl App {
 
         std::fs::write(&main_rs_path, cleaned_contents.clone())?;
         Ok(cleaned_contents)
+    }
+
+    async fn build_and_output_binary(&self) -> Result<(), anyhow::Error> {
+        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
+        let output_path = repo_dir.join("result"); // This is where nix-build outputs the binary by default
+
+        info!("Building the tool using flake.nix...");
+        let crate_name = self.repo_name.as_ref().unwrap(); // Assuming repo_name holds the CRATE_NAME
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "cd {} && nix build && sha256sum ./result/bin/{}",
+                repo_dir.display(),
+                crate_name
+            ))
+            .output()
+            .await?;
+        info!("nix-build output sha256sum: {:?}", output);
+
+        if !output.status.success() {
+            let errors = String::from_utf8_lossy(&output.stderr);
+            error!("nix-build failed: {}", errors);
+            return Err(anyhow::anyhow!("nix-build failed: {}", errors));
+        }
+
+        info!("Build successful, binary located at {:?}", output_path);
+
+        // Optionally, you can copy the binary to a specific location
+        let desired_output_path = self.work_dir.join("final_binary");
+        std::fs::copy(
+            output_path
+                .join("bin")
+                .join(self.repo_name.as_ref().unwrap()),
+            &desired_output_path,
+        )?;
+        info!("Binary copied to {:?}", desired_output_path);
+
+        Ok(())
     }
 }
