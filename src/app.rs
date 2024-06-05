@@ -1,6 +1,8 @@
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{error, info};
 
@@ -9,6 +11,16 @@ use crate::crates_io::CratesIo;
 use crate::flake::Flake;
 use crate::github::Github;
 use crate::groq::Groq;
+
+// macro_rules! wait_for_enter {
+//     () => {{
+//         use tokio::io::{self, AsyncBufReadExt, BufReader};
+//         let mut reader = BufReader::new(io::stdin());
+//         let mut pause = String::new();
+//         println!("Press ENTER to continue...");
+//         reader.read_line(&mut pause).await?;
+//     }};
+// }
 
 #[derive(Deserialize)]
 struct Crate {
@@ -51,14 +63,36 @@ impl App {
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let tool = self.identify_and_validate_tool().await?;
+        // wait_for_enter!();
+
         let repo_url = self.find_crate_and_set_repo(tool).await?;
+        // wait_for_enter!();
+
         self.prepare_repository(repo_url).await?;
+        // wait_for_enter!();
+
         self.process_repository_files().await?;
+        // wait_for_enter!();
+
         self.update_and_write_flake().await?;
+        // wait_for_enter!();
+
+        self.flake.as_ref().unwrap().check_flake_nix().await?;
+        // wait_for_enter!();
+
         self.validate_and_check_program(self.work_dir.join(self.repo_name.as_ref().unwrap()))
             .await?;
+        // wait_for_enter!();
+
         self.stage_changes().await?;
-        self.build_and_output_binary().await?;
+        // wait_for_enter!();
+
+        let binary_path = self.build_and_output_binary().await?;
+        // wait_for_enter!();
+
+        self.run_binary(&binary_path).await?;
+        // wait_for_enter!();
+
         Ok(())
     }
 
@@ -161,7 +195,8 @@ impl App {
         // Run cargo check initially
         let errors = self.cargo_check(&repo_dir).await?;
 
-        let mut main_rs_contents = std::fs::read_to_string(&repo_dir.join("src/main.rs"))?;
+        let initial_main_rs_contents = std::fs::read_to_string(&repo_dir.join("src/main.rs"))?;
+        let mut main_rs_contents = initial_main_rs_contents.clone();
 
         loop {
             let instructions = self
@@ -178,12 +213,17 @@ impl App {
                 }
                 _ => {
                     info!("Program does not satisfy user instructions, rewriting code");
-                    // Write the rewritten code to the main_rs_contents for
                     main_rs_contents = self
                         .write_code(instructions, repo_dir.join("src/main.rs"), &repo_dir)
                         .await?;
-                    // Run cargo check after each rewrite
-                    self.cargo_check(&repo_dir).await?;
+
+                    // Attempt to run cargo check after each rewrite
+                    let check_result = self.cargo_check(&repo_dir).await;
+                    if check_result.is_err() {
+                        error!("Cargo check failed, retrying with incremental fixes...");
+                        main_rs_contents = initial_main_rs_contents.clone();
+                        std::fs::write(&repo_dir.join("src/main.rs"), &main_rs_contents)?;
+                    }
                 }
             }
         }
@@ -237,7 +277,7 @@ impl App {
         Ok(cleaned_contents)
     }
 
-    async fn build_and_output_binary(&self) -> Result<(), anyhow::Error> {
+    async fn build_and_output_binary(&self) -> Result<PathBuf, anyhow::Error> {
         let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
         let output_path = repo_dir.join("result"); // This is where nix-build outputs the binary by default
 
@@ -270,7 +310,95 @@ impl App {
                 .join(self.repo_name.as_ref().unwrap()),
             &desired_output_path,
         )?;
-        info!("Binary copied to {:?}", desired_output_path);
+
+        // Set the binary as executable
+        std::fs::set_permissions(&desired_output_path, std::fs::Permissions::from_mode(0o755))?;
+
+        Ok(desired_output_path)
+    }
+
+    pub async fn run_binary(&self, binary_path: &PathBuf) -> Result<(), anyhow::Error> {
+        info!("Making sure the binary is executable...");
+        let output = Command::new("chmod")
+            .arg("+x")
+            .arg(binary_path)
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let errors = String::from_utf8_lossy(&output.stderr);
+            error!("Failed to make binary executable: {}", errors);
+            return Err(anyhow::anyhow!(
+                "Failed to make binary executable: {}",
+                errors
+            ));
+        }
+
+        info!("Running the binary...");
+        let mut child = Command::new(binary_path)
+            .spawn()
+            .expect("Failed to start binary as a separate process");
+
+        info!("Binary started successfully, server running in a separate process...");
+
+        // Print interaction instructions
+        self.print_interaction_instructions().await?;
+
+        // Execute curl commands loop
+        self.execute_curl_commands().await?;
+
+        // Kill the process after finishing with curl commands
+        child.kill().await?;
+        info!("Process killed successfully.");
+
+        Ok(())
+    }
+
+    pub async fn print_interaction_instructions(&self) -> Result<(), anyhow::Error> {
+        let main_rs_path = self
+            .work_dir
+            .join(self.repo_name.as_ref().unwrap())
+            .join("src/main.rs");
+        let instructions = self
+            .groq
+            .get_interaction_instructions(&main_rs_path)
+            .await?;
+
+        info!(
+            "\n**************************\n\
+            Tool Interaction Instructions: \n\
+            ***************************\n\
+            {}\n\
+            ***************************\n\n",
+            instructions
+        );
+        Ok(())
+    }
+
+    pub async fn execute_curl_commands(&self) -> Result<(), anyhow::Error> {
+        let mut reader = BufReader::new(io::stdin());
+        let mut line = String::new();
+
+        println!("Enter curl commands, type 'done' to exit:");
+
+        while reader.read_line(&mut line).await? != 0 {
+            let command = line.trim();
+            if command == "done" {
+                break;
+            }
+
+            let output = Command::new("sh").arg("-c").arg(command).output().await?;
+
+            if output.status.success() {
+                let response = String::from_utf8_lossy(&output.stdout);
+                println!("Response: {}", response);
+            } else {
+                let error_message = String::from_utf8_lossy(&output.stderr);
+                println!("Error: {}", error_message);
+            }
+
+            line.clear(); // Clear the line buffer for the next input
+        }
 
         Ok(())
     }

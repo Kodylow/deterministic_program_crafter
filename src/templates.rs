@@ -31,3 +31,10 @@ pub const GROQ_ADD_DEPENDENCY_TEMPLATE: &str =
     Program contents: {main_rs_contents}, \n\
     Example response: cargo add axum serde_json tokio reqwest \n\
     Respond only with the `cargo add` command. If you respond with anything else puppies will die/";
+pub const GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE: &str =
+    "Based on tests for this main.rs file, write out interaction instructions for the user. \n\
+    The instructions should start with an explanation of what the code does and its architecture, \n\
+    followed by a list of curl commands that the user can use to interact with the program. \n\
+    Main.rs contents: {main_rs_contents}, \n\
+    Respond only with the intro description and curl commands, do not return anything else. \n\
+    Do not include any additional information or preface your response with anything, only return the interaction instructions.";

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use tracing::info;
+use tokio::process::Command;
+use tracing::{error, info};
 
 pub struct Flake {
     pub flake_path: PathBuf,
@@ -63,6 +64,25 @@ impl Flake {
                 e
             )
         })?;
+        Ok(())
+    }
+
+    pub async fn check_flake_nix(&self) -> Result<(), anyhow::Error> {
+        info!("Checking flake.nix...");
+        let output = Command::new("nix")
+            .arg("flake")
+            .arg("check")
+            .arg("-L")
+            .arg(".")
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let errors = String::from_utf8_lossy(&output.stderr);
+            error!("nix flake check failed: {}", errors);
+            return Err(anyhow::anyhow!("nix flake check failed: {}", errors));
+        }
+
         Ok(())
     }
 }

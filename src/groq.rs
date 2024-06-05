@@ -7,7 +7,8 @@ use tracing::{error, info};
 
 use crate::templates::{
     GROQ_ADD_DEPENDENCY_TEMPLATE, GROQ_CRATES_TEMPLATE, GROQ_CRATE_DESCRIPTION_TEMPLATE,
-    GROQ_REWRITE_MAIN_RS_TEMPLATE, GROQ_VALIDATE_BINARY_TEMPLATE,
+    GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE, GROQ_REWRITE_MAIN_RS_TEMPLATE,
+    GROQ_VALIDATE_BINARY_TEMPLATE,
 };
 
 pub const GROQ_API_BASE_URL: &str = "https://api.groq.com/openai/v1";
@@ -170,6 +171,25 @@ impl Groq {
             ));
         }
         Ok(())
+    }
+
+    pub async fn get_interaction_instructions(
+        &self,
+        main_rs_path: &PathBuf,
+    ) -> Result<String, anyhow::Error> {
+        let main_rs_contents = std::fs::read_to_string(main_rs_path)?;
+        let message =
+            GROQ_INTERACTION_INSTRUCTIONS_TEMPLATE.replace("{main_rs_contents}", &main_rs_contents);
+        let response = self.request_chat_completion(&message).await?;
+        if let Some(choice) = response.choices.first() {
+            if choice.message.content.trim() == "true" {
+                Ok("true".to_string())
+            } else {
+                Ok(choice.message.content.clone())
+            }
+        } else {
+            Err(anyhow::Error::msg("No response from validation request"))
+        }
     }
 }
 
