@@ -54,20 +54,20 @@ impl Database {
         self.tasks.insert(task.id, task);
     }
 
-    pub fn update_task(&mut self, task: Task) {
-        self.tasks.insert(task.id, task);
+    pub fn update_task(&mut self, id: u64, task: Task) {
+        self.tasks.insert(id, task);
     }
 
     pub fn delete_task(&mut self, id: u64) {
         self.tasks.remove(&id);
     }
 
-    pub fn get_task(&self, id: u64) -> Option<&Task> {
-        self.tasks.get(&id)
+    pub fn get_task(&self, id: u64) -> Option<Task> {
+        self.tasks.get(&id).cloned()
     }
 
-    pub fn get_tasks(&self) -> Vec<&Task> {
-        self.tasks.values().collect()
+    pub fn get_tasks(&self) -> Vec<Task> {
+        self.tasks.values().cloned().collect()
     }
 
     pub fn insert_user(&mut self, user: User) {
@@ -82,15 +82,18 @@ impl Database {
         self.users.remove(&id);
     }
 
-    pub fn get_user(&self, id: u64) -> Option<&User> {
-        self.users.get(&id)
+    pub fn get_user(&self, id: u64) -> Option<User> {
+        self.users.get(&id).cloned()
     }
 
-    pub fn get_user_by_username(&self, username: &str) -> Option<&User> {
-        self.users.values().find(|user| user.username == username)
+    pub fn get_user_by_username(&self, username: &str) -> Option<User> {
+        self.users
+            .values()
+            .find(|user| user.username == username)
+            .cloned()
     }
 
-    pub fn get_users(&self) -> Vec<&User> {
-        self.users.values().collect()
+    pub fn get_users(&self) -> Vec<User> {
+        self.users.values().cloned().collect()
     }
 }

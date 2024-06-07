@@ -24,12 +24,12 @@ struct AppState {
 async fn create_task(
     State(app_state): State<AppState>,
     Json(task): Json<Task>,
-) -> Result<Json<()>, AppError> {
+) -> Result<Json<Task>, AppError> {
     let mut db = app_state.db.lock().await;
-    db.insert_task(task);
+    db.insert_task(task.clone());
 
     // return a 200
-    Ok(Json(()))
+    Ok(Json(task))
 }
 
 #[axum::debug_handler]
@@ -47,6 +47,34 @@ async fn read_task(
     }
 }
 
+#[axum::debug_handler]
+async fn read_tasks(State(app_state): State<AppState>) -> Result<Json<Vec<Task>>, AppError> {
+    let db = app_state.db.lock().await;
+    let tasks = db.get_tasks();
+    Ok(Json(tasks))
+}
+
+#[axum::debug_handler]
+async fn update_task(
+    State(app_state): State<AppState>,
+    Path(id): Path<u64>,
+    Json(task): Json<Task>,
+) -> Result<Json<Task>, AppError> {
+    let mut db = app_state.db.lock().await;
+    db.update_task(id, task.clone());
+    Ok(Json(task))
+}
+
+#[axum::debug_handler]
+async fn delete_task(
+    State(app_state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Result<Json<()>, AppError> {
+    let mut db = app_state.db.lock().await;
+    db.delete_task(id);
+    Ok(Json(()))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     init_logging_and_env()?;
@@ -59,8 +87,11 @@ async fn main() -> Result<(), anyhow::Error> {
         .max_age(Duration::from_secs(3600));
 
     let app = axum::Router::new()
-        .route("/task/:id", axum::routing::get(read_task))
         .route("/task", axum::routing::post(create_task))
+        .route("/tasks", axum::routing::get(read_tasks))
+        .route("/task/:id", axum::routing::get(read_task))
+        .route("/task/:id", axum::routing::put(update_task))
+        .route("/task/:id", axum::routing::delete(delete_task))
         .layer(cors)
         .with_state(app_state);
 
