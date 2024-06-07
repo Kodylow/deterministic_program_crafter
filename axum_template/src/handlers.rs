@@ -2,7 +2,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use reqwest::StatusCode;
 
-use crate::db::Task;
+use crate::db::{Task, User};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -59,4 +59,43 @@ pub async fn delete_task(
     let mut db = app_state.db.lock().await;
     db.delete_task(id);
     Ok(Json(()))
+}
+
+#[axum::debug_handler]
+pub async fn create_user(
+    State(app_state): State<AppState>,
+    Json(user): Json<User>,
+) -> Result<Json<User>, AppError> {
+    let mut db = app_state.db.lock().await;
+    db.insert_user(user.clone());
+
+    // return a 200
+    Ok(Json(user))
+}
+
+#[axum::debug_handler]
+pub async fn login(
+    State(app_state): State<AppState>,
+    Json(user): Json<User>,
+) -> Result<Json<String>, AppError> {
+    let db = app_state.db.lock().await;
+    let user = db.get_user_by_username(&user.username);
+    match user {
+        Some(user) => {
+            if user.password == user.password {
+                return Ok(Json(user.username));
+            } else {
+                return Err(AppError::new(
+                    StatusCode::UNAUTHORIZED,
+                    anyhow::anyhow!("Invalid username or password"),
+                ));
+            }
+        }
+        None => {
+            return Err(AppError::new(
+                StatusCode::UNAUTHORIZED,
+                anyhow::anyhow!("Invalid username or password"),
+            ))
+        }
+    }
 }

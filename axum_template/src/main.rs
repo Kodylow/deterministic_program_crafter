@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::HeaderValue;
 use db::Database;
+use reqwest::Client as ReqwestClient;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -34,6 +36,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .route("/task/:id", axum::routing::get(handlers::read_task))
         .route("/task/:id", axum::routing::put(handlers::update_task))
         .route("/task/:id", axum::routing::delete(handlers::delete_task))
+        .route("/register", axum::routing::post(handlers::create_user))
+        .route("/login", axum::routing::post(handlers::login))
         .layer(cors)
         .with_state(app_state);
 

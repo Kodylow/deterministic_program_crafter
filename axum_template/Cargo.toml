@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = "0.1.68"
 anyhow = { workspace = true }
 axum = { version = "0.7.5", features = ["macros", "json"] }
 tokio = { workspace = true }
