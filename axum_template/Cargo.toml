@@ -13,3 +13,4 @@ reqwest = { workspace = true }
 dotenv = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tower-http = { version = "0.5.2", features = ["cors", "auth", "trace"] }
