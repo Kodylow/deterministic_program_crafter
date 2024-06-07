@@ -107,6 +107,7 @@ impl App {
                 &self.groq,
             )
             .await?;
+
         // Second PR: flakebox
         self.github.create_branch(&repo_dir, "flakebox").await?;
         self.install_flakebox_files(&repo_dir).await?;

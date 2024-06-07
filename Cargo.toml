@@ -8,7 +8,7 @@ name = "flakebot"
 path = "flakebot-new/src/main.rs"
 
 [workspace]
-members = ["flakebot-original", "flakebot-new"]
+members = ["flakebot-original", "flakebot-new", "my_proc_macro"]
 
 [workspace.dependencies]
 dotenv = "0.15.0"
