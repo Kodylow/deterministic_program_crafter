@@ -1,9 +1,12 @@
 [package]
-name = "deterministic-program-crafter"
+name = "flakebot"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace]
+members = ["flakebot-original", "flakebot"]
+
+[workspace.dependencies]
 dotenv = "0.15.0"
 clap = { version = "3", features = ["derive", "env"] }
 reqwest = { version = "0.12.4", features = ["json"] }
