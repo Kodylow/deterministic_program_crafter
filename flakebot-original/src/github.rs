@@ -34,9 +34,13 @@ impl Github {
         self.clone_repo(&forked_repo_url, work_dir).await
     }
 
-    pub async fn fork_repo(&self, repo_url: &str) -> Result<String, Error> {
-        let repo_name = repo_url.split('/').last().unwrap();
-        let repo_owner = repo_url.split('/').nth(3).unwrap(); // Assuming URL is in the format https://github.com/{owner}/{repo}
+    pub async fn fork_repo(&self, repo_url: &str) -> Result<String, anyhow::Error> {
+        let repo_name = repo_url.split('/').last().ok_or_else(|| {
+            anyhow::anyhow!("Repository URL does not contain a name: {}", repo_url)
+        })?;
+        let repo_owner = repo_url.split('/').nth(3).ok_or_else(|| {
+            anyhow::anyhow!("Repository URL does not contain an owner: {}", repo_url)
+        })?;
 
         if repo_owner == "kodylow" {
             info!("Repository belongs to 'kodylow', no need to fork.");
@@ -57,8 +61,10 @@ impl Github {
                 repo["fork"].as_bool() == Some(true)
                     && repo["parent"]["full_name"].as_str() == Some(repo_name)
             }) {
-                let forked_repo_url = fork["clone_url"].as_str().unwrap().to_string();
-                return Ok(forked_repo_url);
+                let forked_repo_url = fork["clone_url"].as_str().ok_or_else(|| {
+                    anyhow::anyhow!("Failed to get clone URL from forked repository")
+                })?;
+                return Ok(forked_repo_url.to_string());
             }
         } else {
             error!("Failed to retrieve user repositories");
@@ -74,8 +80,10 @@ impl Github {
 
         if response.status().is_success() {
             let forked_repo: Value = response.json().await?;
-            let forked_repo_url = forked_repo["clone_url"].as_str().unwrap().to_string();
-            return Ok(forked_repo_url);
+            let forked_repo_url = forked_repo["clone_url"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get clone URL from forked repository"))?;
+            return Ok(forked_repo_url.to_string());
         } else {
             return Err(anyhow::anyhow!("Failed to fork repository"));
         }
@@ -86,7 +94,9 @@ impl Github {
         repo_url: &str,
         work_dir: &PathBuf,
     ) -> Result<(), anyhow::Error> {
-        let repo_name = repo_url.split("/").last().unwrap();
+        let repo_name = repo_url.split("/").last().ok_or_else(|| {
+            anyhow::anyhow!("Repository URL does not contain a name: {}", repo_url)
+        })?;
         let repo_path = work_dir.join(repo_name);
 
         // Check if the directory exists and delete it if it does

@@ -152,11 +152,12 @@ impl Groq {
             .replace("{user_instructions}", instructions)
             .replace("{main_rs_contents}", main_rs_contents);
         let response = self.request_chat_completion(&message).await?;
-        Ok(response
+        let response = response
             .choices
             .first()
             .map(|c| c.message.content.clone())
-            .unwrap())
+            .ok_or_else(|| anyhow::anyhow!("No response from rewrite request"))?;
+        Ok(response)
     }
 
     pub async fn add_cargo_deps(
@@ -171,7 +172,7 @@ impl Groq {
             .choices
             .first()
             .map(|c| c.message.content.clone())
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("No response from add_cargo_deps request"))?;
         info!("Adding cargo command: {}", command);
         let add_output = Command::new("sh")
             .arg("-c")
@@ -230,33 +231,19 @@ impl Groq {
             .replace("{github_token}", github_token)
             .replace("{git_diff}", git_diff);
         let message_response = self.request_chat_completion(&message).await?;
-        let title = GROQ_PR_TITLE_TEMPLATE.replace(
-            "{pr_message}",
-            &message_response
-                .choices
-                .first()
-                .unwrap()
-                .message
-                .content
-                .clone(),
-        );
+        let message = message_response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .ok_or_else(|| anyhow::anyhow!("No response from rewrite request"))?;
+        let title = GROQ_PR_TITLE_TEMPLATE.replace("{pr_message}", &message);
         let title_response = self.request_chat_completion(&title).await?;
-        Ok((
-            title_response
-                .choices
-                .first()
-                .unwrap()
-                .message
-                .content
-                .clone(),
-            message_response
-                .choices
-                .first()
-                .unwrap()
-                .message
-                .content
-                .clone(),
-        ))
+        let title = title_response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .ok_or_else(|| anyhow::anyhow!("No response from rewrite request"))?;
+        Ok((title, message))
     }
 }
 

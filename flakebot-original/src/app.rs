@@ -42,16 +42,22 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(cli_args: &config::CliArgs) -> App {
+    pub async fn new(cli_args: &config::CliArgs) -> Result<App, anyhow::Error> {
         let groq = Groq::new(&cli_args.groq_api_key);
         let github = Github::new(cli_args.github_token.clone());
         let crates_io = CratesIo::new(cli_args.cargo_cookie.clone());
         // Ensure the work directory exists
         if !cli_args.work_dir.exists() {
-            std::fs::create_dir_all(&cli_args.work_dir).expect("Failed to create work directory");
+            std::fs::create_dir_all(&cli_args.work_dir).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to create work directory at {}: {}",
+                    cli_args.work_dir.display(),
+                    e
+                )
+            })?;
         }
 
-        App {
+        Ok(App {
             instructions: cli_args.instructions.clone(),
             work_dir: cli_args.work_dir.clone(),
             repo_url: None,
@@ -60,73 +66,60 @@ impl App {
             github,
             crates_io,
             flake: None,
-        }
+        })
     }
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let tool = self.identify_and_validate_tool().await?;
         let repo_url = self.find_crate_and_set_repo(tool).await?;
         self.prepare_repository(repo_url).await?;
-        self.github
-            .create_branch(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                "nix-flake",
-            )
-            .await?;
+        self.process_repository_files().await?;
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
+        self.github.create_branch(&repo_dir, "nix-flake").await?;
 
         // First PR: flake.nix
         self.flake
-            .as_ref()
-            .unwrap()
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get flake"))?
             .ensure_flake_nix(&PathBuf::from(
                 "/Users/kody/Documents/github/deterministic_program_crafter/reference_flake.nix",
             ))
             .await?;
         self.update_and_write_flake().await?;
-        self.flake.as_ref().unwrap().check_flake_nix().await?;
+        self.flake
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get flake"))?
+            .check_flake_nix()
+            .await?;
         self.commit_changes(true).await?;
         self.push_changes(false).await?;
         self.github
             .open_pull_request(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
+                &self.work_dir.join(
+                    self.repo_name
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+                ),
                 &self.groq,
             )
             .await?;
         // Second PR: flakebox
-        self.github
-            .create_branch(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                "flakebox",
-            )
-            .await?;
-        self.install_flakebox_files(&self.work_dir.join(self.repo_name.as_ref().unwrap()))
-            .await?;
+        self.github.create_branch(&repo_dir, "flakebox").await?;
+        self.install_flakebox_files(&repo_dir).await?;
         self.push_changes(false).await?;
-        self.github
-            .open_pull_request(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                &self.groq,
-            )
-            .await?;
+        self.github.open_pull_request(&repo_dir, &self.groq).await?;
 
         // Third PR: main.rs updates
-        self.github
-            .create_branch(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                "new-feature",
-            )
-            .await?;
-        self.validate_and_check_program(self.work_dir.join(self.repo_name.as_ref().unwrap()))
-            .await?;
+        self.github.create_branch(&repo_dir, "new-feature").await?;
+        self.validate_and_check_program(repo_dir.clone()).await?;
         let binary_path = self.build_and_output_binary().await?;
         self.run_binary(&binary_path).await?;
         self.push_changes(true).await?;
-        self.github
-            .open_pull_request(
-                &self.work_dir.join(self.repo_name.as_ref().unwrap()),
-                &self.groq,
-            )
-            .await?;
+        self.github.open_pull_request(&repo_dir, &self.groq).await?;
         Ok(())
     }
 
@@ -156,19 +149,28 @@ impl App {
             .await
             .ok_or_else(|| anyhow::anyhow!("Failed to find crate on crates.io"))?;
         self.repo_url = Some(repo_url.clone());
-        let repo_name = repo_url.split('/').last().unwrap().to_string();
-        self.repo_name = Some(repo_name.clone());
+        let repo_name = repo_url.split('/').last().ok_or_else(|| {
+            anyhow::anyhow!("Repository URL does not contain a name: {}", repo_url)
+        })?;
+        self.repo_name = Some(repo_name.to_string());
         Ok(repo_url)
     }
 
     async fn prepare_repository(&mut self, repo_url: String) -> Result<(), anyhow::Error> {
-        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
         self.github
             .fork_and_clone(&repo_url, &self.work_dir)
             .await?;
         self.flake = Some(Flake::new(
-            &self.repo_name.as_ref().unwrap(),
-            &self.work_dir,
+            &self
+                .repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+            &repo_dir,
         ));
 
         // Modify .gitignore file
@@ -184,7 +186,11 @@ impl App {
 
     async fn commit_changes(&self, main_diff: bool) -> Result<(), anyhow::Error> {
         info!("Staging changes...");
-        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
 
         let status = Command::new("git")
             .arg("add")
@@ -233,15 +239,28 @@ impl App {
 
     pub async fn push_changes(&self, main_diff: bool) -> Result<(), anyhow::Error> {
         self.commit_changes(main_diff).await?;
-        self.github
-            .push_changes(&self.work_dir.join(self.repo_name.as_ref().unwrap()))
-            .await?;
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
+        self.github.push_changes(&repo_dir).await?;
         Ok(())
     }
 
     async fn process_repository_files(&self) -> Result<(), anyhow::Error> {
-        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
-        let _ = std::fs::read_to_string(&self.flake.as_ref().unwrap().flake_path)?;
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
+        let _ = std::fs::read_to_string(
+            &self
+                .flake
+                .as_ref()
+                .ok_or(anyhow::anyhow!("Failed to get flake"))?
+                .flake_path,
+        )?;
         let _ = std::fs::read_to_string(&repo_dir.join("Cargo.toml"))?;
         let _ = std::fs::read_to_string(&repo_dir.join("README.md"))?;
         let _ = std::fs::read_to_string(&repo_dir.join("src/main.rs"))?;
@@ -249,8 +268,15 @@ impl App {
     }
 
     async fn update_and_write_flake(&mut self) -> Result<(), anyhow::Error> {
-        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
-        let binary_name = self.repo_name.as_ref().unwrap();
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
+        let binary_name = self
+            .repo_name
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?;
         let cargo_toml_contents = std::fs::read_to_string(&repo_dir.join("Cargo.toml"))?;
         let readme_contents = std::fs::read_to_string(&repo_dir.join("README.md"))?;
         let main_rs_contents = std::fs::read_to_string(&repo_dir.join("src/main.rs"))?;
@@ -262,7 +288,7 @@ impl App {
 
         self.flake
             .as_ref()
-            .unwrap()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get flake"))?
             .write_description_and_binary_name(&crate_description, &binary_name)
             .await?;
 
@@ -359,11 +385,18 @@ impl App {
     }
 
     async fn build_and_output_binary(&self) -> Result<PathBuf, anyhow::Error> {
-        let repo_dir = self.work_dir.join(self.repo_name.as_ref().unwrap());
+        let repo_dir = self.work_dir.join(
+            self.repo_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+        );
         let output_path = repo_dir.join("result"); // This is where nix-build outputs the binary by default
 
         info!("Building the tool using flake.nix...");
-        let crate_name = self.repo_name.as_ref().unwrap(); // Assuming repo_name holds the CRATE_NAME
+        let crate_name = self
+            .repo_name
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?;
         let output = Command::new("sh")
             .arg("-c")
             .arg(format!(
@@ -386,9 +419,11 @@ impl App {
         // Optionally, you can copy the binary to a specific location
         let desired_output_path = self.work_dir.join("final_binary");
         std::fs::copy(
-            output_path
-                .join("bin")
-                .join(self.repo_name.as_ref().unwrap()),
+            output_path.join("bin").join(
+                self.repo_name
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+            ),
             &desired_output_path,
         )?;
 
@@ -416,9 +451,7 @@ impl App {
         }
 
         info!("Running the binary...");
-        let mut child = Command::new(binary_path)
-            .spawn()
-            .expect("Failed to start binary as a separate process");
+        let mut child = Command::new(binary_path).spawn()?;
 
         info!("Binary started successfully, server running in a separate process...");
 
@@ -438,7 +471,11 @@ impl App {
     pub async fn print_interaction_instructions(&self) -> Result<(), anyhow::Error> {
         let main_rs_path = self
             .work_dir
-            .join(self.repo_name.as_ref().unwrap())
+            .join(
+                self.repo_name
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Failed to get repository name"))?,
+            )
             .join("src/main.rs");
         let instructions = self
             .groq

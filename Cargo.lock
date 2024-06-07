@@ -164,23 +164,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06ea2b9bc92be3c2baa9334a323ebca2d6f074ff852cd1d7b11064035cd3868f"
 
 [[package]]
-name = "deterministic-program-crafter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "dotenv",
- "fs_extra",
- "git2",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "dotenv"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -216,6 +199,31 @@ name = "fastrand"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
+
+[[package]]
+name = "flakebot"
+version = "0.1.0"
+
+[[package]]
+name = "flakebot-new"
+version = "0.1.0"
+
+[[package]]
+name = "flakebot-original"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenv",
+ "fs_extra",
+ "git2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "fnv"

@@ -14,7 +14,7 @@ async fn main() -> Result<(), anyhow::Error> {
     init_logging_and_env()?;
 
     let cli_args = config::CliArgs::parse();
-    let mut app = App::new(&cli_args).await;
+    let mut app = App::new(&cli_args).await?;
 
     app.run().await
 }

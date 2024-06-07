@@ -3,8 +3,12 @@ name = "flakebot"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "flakebot"
+path = "flakebot-new/src/main.rs"
+
 [workspace]
-members = ["flakebot-original", "flakebot"]
+members = ["flakebot-original", "flakebot-new"]
 
 [workspace.dependencies]
 dotenv = "0.15.0"
